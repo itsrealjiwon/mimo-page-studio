@@ -2,90 +2,34 @@
 
 import os
 import json
-import urllib.request
-import urllib.error
+from http.server import BaseHTTPRequestHandler
 
 # ── Style Presets ──────────────────────────────────────────────────────────
 
 STYLE_PRESETS = {
     "modern-saas": {
         "name": "Modern SaaS",
-        "prompt_suffix": """
-Design a modern SaaS landing page with:
-- Hero with gradient background (#667eea → #764ba2 or similar), large headline, subtext, and CTA button
-- Feature cards with icons (use emoji or SVG inline)
-- Pricing section with 3 tiers
-- Social proof / testimonials
-- Clean footer
-- Smooth scroll animations via CSS
-- Inter or system font stack
-- Fully responsive (mobile-first)
-"""
+        "prompt_suffix": "Design a modern SaaS landing page with gradient hero, feature cards, pricing tiers, testimonials, smooth CSS animations, Inter font, fully responsive."
     },
     "creative-portfolio": {
         "name": "Creative Portfolio",
-        "prompt_suffix": """
-Design a creative portfolio landing page with:
-- Full-screen hero with bold typography and dark background
-- Masonry-style project gallery
-- About section with asymmetric layout
-- Contact form with stylish inputs
-- Smooth CSS animations and hover effects
-- Monospace accent font mixed with sans-serif
-- Dark mode aesthetic (#0a0a0a bg, #ffffff text, accent color)
-"""
+        "prompt_suffix": "Design a creative portfolio landing page with bold dark hero, masonry gallery, asymmetric layout, CSS animations, monospace accent font, dark mode aesthetic."
     },
     "ecommerce": {
         "name": "E-commerce",
-        "prompt_suffix": """
-Design an e-commerce product landing page with:
-- Hero product showcase with large image area
-- Feature highlights with alternating image/text sections
-- Product specifications table
-- Customer reviews with star ratings
-- Add-to-cart CTA with urgency elements
-- Trust badges (security, shipping, returns)
-- Clean white background with accent color
-"""
+        "prompt_suffix": "Design an e-commerce product landing page with hero product showcase, feature highlights, specs table, reviews, add-to-cart CTA, trust badges."
     },
     "agency": {
         "name": "Agency",
-        "prompt_suffix": """
-Design a professional agency landing page with:
-- Elegant hero with video/image background placeholder
-- Services grid with hover effects
-- Case studies / portfolio section
-- Team section with circular photos
-- Stats/numbers section (animated counters via CSS)
-- Contact section with map placeholder
-- Navy (#1a1a2e) + gold (#e2b04a) color scheme
-"""
+        "prompt_suffix": "Design a professional agency landing page with elegant hero, services grid, case studies, team section, stats counters, contact section, navy+gold scheme."
     },
     "app-landing": {
         "name": "App Landing",
-        "prompt_suffix": """
-Design a mobile app landing page with:
-- Hero with phone mockup placeholder and download buttons
-- Feature walkthrough with numbered steps
-- Screenshot gallery (horizontal scroll)
-- App store badges (styled as buttons)
-- FAQ accordion
-- Newsletter signup
-- Gradient background (#0f0c29 → #302b63 → #24243e)
-"""
+        "prompt_suffix": "Design a mobile app landing page with hero mockup, feature walkthrough, screenshot gallery, app store badges, FAQ accordion, gradient background."
     },
     "event": {
         "name": "Event",
-        "prompt_suffix": """
-Design an event landing page with:
-- Countdown timer (CSS-only, large digits)
-- Event hero with date, location, tagline
-- Speaker cards in grid
-- Schedule/agenda timeline
-- Ticket pricing tiers
-- Sponsor logos section
-- Bold, vibrant colors (#ff6b6b, #4ecdc4)
-"""
+        "prompt_suffix": "Design an event landing page with countdown timer, event hero, speaker cards, schedule timeline, ticket tiers, sponsor logos, vibrant colors."
     }
 }
 
@@ -124,86 +68,82 @@ LANGUAGE: All text content must be in {lang_name}.
 Make it visually stunning, professional, and production-ready. Output only the HTML."""
 
 
-def handler(request):
-    """Vercel Python serverless function handler."""
-    # CORS headers
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-    }
-
-    # Handle preflight
-    if request.method == "OPTIONS":
-        return {"statusCode": 204, "headers": headers}
-
-    if request.method != "POST":
-        return {"statusCode": 405, "headers": headers, "body": json.dumps({"error": "Method not allowed"})}
-
-    try:
-        body = json.loads(request.body)
-    except Exception:
-        return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Invalid JSON"})}
-
-    user_prompt = body.get("prompt", "").strip()
-    style = body.get("style", "modern-saas")
-    language = body.get("language", "en")
-
-    if not user_prompt:
-        return {"statusCode": 400, "headers": headers, "body": json.dumps({"error": "Prompt is required"})}
+def call_mimo_api(prompt):
+    """Call MiMo API and return generated content."""
+    import urllib.request
+    import urllib.error
 
     api_key = os.environ.get("MIMO_API_KEY", "")
     api_base = os.environ.get("MIMO_API_BASE", "https://api.xiaomimimo.com/v1")
     model = os.environ.get("MIMO_MODEL", "mimo-v2.5-pro")
 
     if not api_key:
-        return {"statusCode": 500, "headers": headers, "body": json.dumps({"error": "MIMO_API_KEY not configured"})}
+        return None, "MIMO_API_KEY not configured"
 
-    full_prompt = build_prompt(user_prompt, style, language)
+    req_data = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 16000
+    }).encode()
 
-    # Call MiMo API (non-streaming for Vercel serverless)
-    try:
-        req_data = json.dumps({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": full_prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 16000
-        }).encode()
+    req = urllib.request.Request(
+        f"{api_base}/chat/completions",
+        data=req_data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "mimo-page-studio/1.0"
+        },
+        method="POST"
+    )
 
-        req = urllib.request.Request(
-            f"{api_base}/chat/completions",
-            data=req_data,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "mimo-page-studio/1.0"
-            },
-            method="POST"
-        )
+    resp = urllib.request.urlopen(req, timeout=90)
+    result = json.loads(resp.read())
+    return result["choices"][0]["message"]["content"], None
 
-        resp = urllib.request.urlopen(req, timeout=90)
-        result = json.loads(resp.read())
-        content = result["choices"][0]["message"]["content"]
 
-        return {
-            "statusCode": 200,
-            "headers": {**headers, "Content-Type": "application/json"},
-            "body": json.dumps({"content": content})
-        }
+class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode()[:200]
-        return {
-            "statusCode": 502,
-            "headers": headers,
-            "body": json.dumps({"error": f"MiMo API error: {e.code} {error_body}"})
-        }
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "headers": headers,
-            "body": json.dumps({"error": str(e)})
-        }
+    def do_POST(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length)
+
+        try:
+            data = json.loads(body)
+        except Exception:
+            self._respond(400, {"error": "Invalid JSON"})
+            return
+
+        user_prompt = data.get("prompt", "").strip()
+        style = data.get("style", "modern-saas")
+        language = data.get("language", "en")
+
+        if not user_prompt:
+            self._respond(400, {"error": "Prompt is required"})
+            return
+
+        full_prompt = build_prompt(user_prompt, style, language)
+        content, error = call_mimo_api(full_prompt)
+
+        if error:
+            self._respond(500, {"error": error})
+            return
+
+        self._respond(200, {"content": content})
+
+    def _respond(self, status, data):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
